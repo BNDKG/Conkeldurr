@@ -236,7 +236,93 @@ def from_chatgpt():
 
 
 def opt_backTesting():
+
+    daily_all_df=pd.read_csv('try1216.csv',header=0,encoding='utf-8-sig')
+
+    print(daily_all_df)
+
+    datelist=daily_all_df['trade_date'].unique()
+
+    show3=[]
+    mean=0
+    std_dev = 1
     
+    baseline50=[]
+    baseline=1
+    baselinerd=1
+    
+    hold_list=[]
+
+    seed_value = 66
+    np.random.seed(seed_value)
+
+    for cur_date in datelist:
+        
+        #获取当日的数据
+        cur_df_all=daily_all_df[daily_all_df['trade_date'].isin([cur_date])]
+        cur_df_all.sort_values(by='exercise_price', ascending=True, inplace=True)
+        
+        filtered_df = cur_df_all.loc[cur_df_all['opt_code'] == '510300.SH']
+        if(len(filtered_df)==0):
+            curpctchg=0
+        else:
+            curpctchg=filtered_df['ETF_pct_chg'].values[0]
+        
+        baseline=baseline*(1+curpctchg/100)
+        baseline50.append(baseline)
+
+        print(cur_df_all)
+
+        #策略一 简单的买入所有认购
+
+        buylist=cur_df_all    
+        buylist=buylist.sort_values(by=['close'])
+        buylist=buylist[buylist['call_put']=="C"]
+        buylist=buylist[buylist['close']>0.02]
+        buylist=buylist[buylist['days_remain']<30]
+
+        buylist=buylist.head(3)
+
+        print(buylist)
+
+        savebuylist=buylist[['ts_code','open','call_put','close']]
+        savebuylist.columns = ['ts_code','open','call_put','buy_price']
+        savebuylist['last_action_flag']=0
+
+        hold_list=hold_list.append(savebuylist)
+
+        single_random_number = np.random.normal(mean, std_dev, size=1)
+        
+        baselinerd=baselinerd*(1+single_random_number/100)
+        show3.append(baselinerd)
+
+
+    days=np.arange(1,datelist.shape[0]+1)
+
+    #每隔5日显示一个数据
+    eee=np.where(days%5==0)
+    daysshow=days[eee]
+    datashow=datelist[eee]
+    
+    plt.plot(days,show3,c='green',label="TOPK _open_head30")
+    plt.plot(days,baseline50,c='red',label="300ETF_baseline")
+    plt.xticks(daysshow, datashow,color='blue',rotation=60)
+    #plt.yscale("log")
+    plt.legend()
+    plt.show()
+
+    #daily_all_df.to_csv('try1216.csv',encoding='utf-8-sig')
+
+    #循环每日数据
+
+
+    #根据数据生成图表
+
+
+    zzzz=1
+
+def opt_datemerge():
+
     pd.set_option('display.width', 5000)
     pd.set_option('display.max_rows', 500)
     pd.set_option('display.max_columns', 500)
@@ -271,71 +357,16 @@ def opt_backTesting():
 
     daily_all_df=pd.merge(daily_all_df,df_etf_use_all,on=['opt_code','trade_date'],how='left')
 
-    daily_all_df.sort_values(by='trade_date', ascending=True, inplace=True)
+    daily_all_df.sort_values(by='trade_date', ascending=True, inplace=True)    
+
+    date1 = pd.to_datetime(daily_all_df['delist_date'], format='%Y%m%d')
+    date2 = pd.to_datetime(daily_all_df['trade_date'], format='%Y%m%d')
+    timedelta = date1 - date2
+    daily_all_df['days_remain'] = timedelta.dt.days
 
     print(daily_all_df)
 
-    datelist=daily_all_df['trade_date'].unique()
-
-    show3=[]
-    mean=0
-    std_dev = 1
-    
-    baseline50=[]
-    baseline=1
-    baselinerd=1
-    
-    seed_value = 66
-    np.random.seed(seed_value)
-
-    for cur_date in datelist:
-        
-        #获取当日的数据
-        cur_df_all=daily_all_df[daily_all_df['trade_date'].isin([cur_date])]
-        cur_df_all.sort_values(by='exercise_price', ascending=True, inplace=True)
-        
-        filtered_df = cur_df_all.loc[cur_df_all['opt_code'] == '510300.SH']
-        if(len(filtered_df)==0):
-            curpctchg=0
-        else:
-            curpctchg=filtered_df['ETF_pct_chg'].values[0]
-        
-        baseline=baseline*(1+curpctchg/100)
-
-        baseline50.append(baseline)
-
-        #print(cur_df_all)
-
-
-        single_random_number = np.random.normal(mean, std_dev, size=1)
-        
-        baselinerd=baselinerd*(1+single_random_number/100)
-        show3.append(baselinerd)
-
-
-    days=np.arange(1,datelist.shape[0]+1)
-
-    #每隔5日显示一个数据
-    eee=np.where(days%5==0)
-    daysshow=days[eee]
-    datashow=datelist[eee]
-    
-    plt.plot(days,show3,c='green',label="TOPK _open_head30")
-    plt.plot(days,baseline50,c='red',label="TOPK _open_head30")
-    plt.xticks(daysshow, datashow,color='blue',rotation=60)
-    #plt.yscale("log")
-    plt.legend()
-    plt.show()
-
-    #daily_all_df.to_csv('try1216.csv',encoding='utf-8-sig')
-
-    #循环每日数据
-
-
-    #根据数据生成图表
-
-
-    zzzz=1
+    daily_all_df.to_csv('try1216.csv',encoding='utf-8-sig')
 
 
 if __name__ == '__main__':
@@ -356,6 +387,7 @@ if __name__ == '__main__':
     #get_ETF_info(pro)
 
     #downloadall(pro)
+    #opt_datemerge()
 
     opt_backTesting()
 
