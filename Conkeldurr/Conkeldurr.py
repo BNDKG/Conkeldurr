@@ -235,6 +235,7 @@ def from_chatgpt():
     regression_metrics(y_test, y_pred)
     xxxx=1
 
+
 def train_option_exercise_probability_model():
 
     df=pd.read_csv('try1224.csv',index_col=0,header=0,encoding='utf-8-sig')
@@ -322,6 +323,119 @@ def train_option_exercise_probability_model():
 
     zzzz=1
 
+def train_option_rank_model():
+
+    df=pd.read_csv('see0113.csv',index_col=0,header=0,encoding='utf-8-sig')
+
+    df['ETF_close'].fillna(0, inplace=True)
+    df['close'].fillna(0, inplace=True)
+    df['pre_close'].fillna(0, inplace=True)
+    df['pre_close'].fillna(0, inplace=True)
+
+    # # 划分验证集
+    # valid = df.sample(frac=0.2, random_state=42)
+    # df.drop(index=valid.index, axis=1, inplace=True)
+
+    mapping_call_put = {'C': 1, 'P': 2}
+    
+    mapping_opt_code = {'510050.SH': 1, '510300.SH': 2, '510500.SH': 3, '588000.SH': 4, '588080.SH': 5}
+
+    df['call_put'] = df['call_put'].map(mapping_call_put)
+    df['opt_code'] = df['opt_code'].map(mapping_opt_code)
+
+    df.dropna(axis=0, how='any', inplace=True)
+    print(df)
+    dfindex=df
+    df = df.drop(['ts_code'],axis=1,inplace=False)
+
+    #df=df[['pre_close','opt_code','call_put','days_remain','Exercise_Status']]
+
+
+    # 划分训练集和测试集
+    
+    X = df[['pre_close','close','trade_date','ETF_close','ETF_pct_chg','real_value','opt_code','call_put','days_remain']]
+    y = df['tomorrow_chg_rank']
+    #X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+    train_ids = X.index.tolist()
+    splitno=int(len(train_ids)*0.75)
+    
+    X_train = X.iloc[:splitno, :]
+    X_test=X.iloc[(splitno+100):, :]
+    
+    y_train=y[:splitno]
+    y_test=y[(splitno+100):]
+
+    dfindex_train=dfindex.iloc[:splitno, :]
+    dfindex_test=dfindex.iloc[(splitno+100):, :]
+    
+    print(X_train)
+    print(dfindex_test)
+
+    # 创建LightGBM数据集
+    train_data = lgb.Dataset(X_train, label=y_train)
+    val_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
+
+    # 设置参数
+    params = {
+        'task': 'train',
+        'boosting_type': 'gbdt',
+        'objective': 'regression',
+        'max_depth': 7,
+        'num_leaves': 31,
+        'learning_rate': 0.1,
+        'feature_fraction': 0.8,
+        'bagging_fraction': 0.8,
+        'bagging_freq': 5,
+        'verbose': 10
+    }
+
+    # 训练模型
+    model = lgb.train(params, train_data, valid_sets=[val_data], num_boost_round=100)
+
+    # 预测
+    predictions = model.predict(X_test)
+
+    outputy=pd.DataFrame(predictions,columns=['y_pred'])
+
+    dfindex_test.reset_index(inplace=True,drop=True)
+    
+    print(dfindex_test)
+
+    dfindex_test['Tomorrow_pred']=outputy
+
+    print(dfindex_test)
+    
+    dfindex_test.to_csv('lgbpred_0113.csv')
+
+    zzzz=1
+
+def opt_datemerge_FE():
+
+    df=pd.read_csv('try1224.csv',index_col=0,header=0,encoding='utf-8-sig')
+    
+    before1=df.groupby('ts_code')['close'].shift(1)
+    nextstart=df.groupby('ts_code')['close'].shift(0)
+    nextnstart=df.groupby('ts_code')['close'].shift(-3)
+    
+    df['tomorrow_chg']=((nextnstart-nextstart+0.00001)/(nextstart+0.00001))*100
+    df['last_chg']=((nextstart-before1+0.00001)/(nextstart+0.00001))*100    
+
+    df['opt_today_dif']=df['close']-df['pre_close']
+    df['opt_today_dif3'] = df.groupby('ts_code')['opt_today_dif'].rolling(window=3).sum().reset_index(level=0, drop=True)
+
+    df['opt_today_pct3']=df['opt_today_dif3']/df['close']
+
+    #明日排名
+    df['tomorrow_chg_rank']=df.groupby('trade_date')['opt_today_pct3'].rank(pct=True)
+    #df['tomorrow_chg_rank']=df['tomorrow_chg_rank']*19.9//1
+
+    print(df)
+    
+    df.to_csv('see0113.csv')
+
+    asdfasf=1
+
 def opt_backTesting():
 
     daily_all_df=pd.read_csv('see1224.csv',header=0,index_col=0,encoding='utf-8-sig')
@@ -339,16 +453,20 @@ def opt_backTesting():
     baselinerd=1
     
     hold_list=[]
-    hold_list=pd.DataFrame(columns=('ts_code','call_put','buy_amount','lastprice'))
+    hold_list=pd.DataFrame(columns=('ts_code','call_put','buy_sell','buy_amount','lastprice'))
     
     account=10000000
-    buy_pct=0.5
+    buy_pct=0.6
     accountbase=account
     lastallvalue=account
+    curMax=0
+    curMaxDropDown=0
     #当日结束总资产
     allvalue=account
+    buynum=2
+    buyorsell_1=-1
+    buyorsell_2=-1
 
-    buyorsell=0
 
     seed_value = 66
     np.random.seed(seed_value)
@@ -365,7 +483,7 @@ def opt_backTesting():
 
         #这里改成代号
         # mapping_opt_code = {'510050.SH': 1, '510300.SH': 2, '510500.SH': 3, '588000.SH': 4, '588080.SH': 5}
-        filtered_df = cur_df_all.loc[cur_df_all['opt_code'] == 2]
+        filtered_df = cur_df_all.loc[cur_df_all['opt_code'] == 1]
         if(len(filtered_df)==0):
             curpctchg=0
         else:
@@ -389,34 +507,39 @@ def opt_backTesting():
         #卖出逻辑
         if hold_list.shape[0]>0 :
             #简单的直接清空
-            hold_list_value=hold_list['buy_amount']*hold_list['lastprice']*10000
-            #前面买入这里加
-            if buyorsell == 0 :          
-                account=account+hold_list_value.sum()
-            else:
-                account=account-hold_list_value.sum()
-            hold_list=pd.DataFrame(columns=('ts_code','call_put','buy_amount','lastprice'))
+            hold_list_value=hold_list['buy_amount']*hold_list['lastprice']*hold_list['buy_sell']*10000
+            #前面买入这里加     
+            account=account+hold_list_value.sum()
+
+            hold_list=pd.DataFrame(columns=('ts_code','call_put','buy_sell','buy_amount','lastprice'))
             allvalue=account
             dsfsdf=1
             
 
         #策略一 简单的买入所有认购
 
-        buy_all_value=allvalue*buy_pct
+        buy_all_value=allvalue*buy_pct/buynum
 
         if(cur_date>20231100):
             print(filtered_df)
             
-        buylist=filtered_df    
-        buylist=buylist.sort_values(by=['close'])
+        buylist=filtered_df
+        #选择需要的行权概率
+        buylist['Exercise_pred_order']=buylist['Exercise_pred']-0.3
+        buylist['Exercise_pred_order']=buylist['Exercise_pred_order'].abs()
+        #print(buylist)
+        buylist=buylist.sort_values(by=['Exercise_pred_order'],ascending=True)
+        #print(buylist)
         #这里改成代号
         # mapping_call_put = {'C': 1, 'P': 2}
         buylist=buylist[buylist['call_put']==1]
-        buylist=buylist[buylist['close']>0.05]
-        buylist=buylist[buylist['days_remain']<50]
+        buylist=buylist[buylist['close']>0.01]
+        buylist=buylist[buylist['days_remain']<70]
         buylist=buylist[buylist['days_remain']>5]
 
-        buylist=buylist.head(1)
+        #print(buylist)
+
+        buylist=buylist.head(buynum)
         
         if(cur_date>20231100):
             print(buylist)
@@ -427,27 +550,77 @@ def opt_backTesting():
         #buylist['buyuse']=code_amount_buy/buylist['close']
         buylist.loc[:,'buyuse']=buylist['buyuse'].round(0)
         buylist.loc[:,'buyuse']=buylist['buyuse'].astype(int)
-        buylist['value']=buylist['close']*buylist['buyuse']*10000
+        #buy=1 sell=-1
+        buylist['buy_sell']=buyorsell_1
+        buylist['value']=buylist['close']*buylist['buyuse']*buylist['buy_sell']*10000
         #print(buylist)
-
-        savebuylist=buylist[['ts_code','call_put','buyuse','close']]
-        savebuylist.columns = ['ts_code','call_put','buy_amount','lastprice']
-        savebuylist['last_action_flag']=0
         
-        if buyorsell == 0 :          
-            account=account-buylist['value'].sum()-buylist['buyuse'].sum()*2
-        else:
-            account=account+buylist['value'].sum()-buylist['buyuse'].sum()*2
+        
+
+        savebuylist=buylist[['ts_code','call_put','buy_sell','buyuse','close']]
+        savebuylist.columns = ['ts_code','call_put','buy_sell','buy_amount','lastprice']
+        savebuylist['last_action_flag']=0
+              
+        account=account-buylist['value'].sum()-buylist['buyuse'].sum()*2
+
         hold_list=hold_list.append(savebuylist)
+        
+
+        if True:
+            buy_all_value=0.5*allvalue*buy_pct/buynum
+
+            if(cur_date>20231100):
+                print(filtered_df)
+            
+            buylist=filtered_df
+            #选择需要的行权概率
+            buylist['Exercise_pred_order']=buylist['Exercise_pred']-0.3
+            buylist['Exercise_pred_order']=buylist['Exercise_pred_order'].abs()
+
+            buylist=buylist.sort_values(by=['Exercise_pred_order'],ascending=True)
+            #这里改成代号
+            # mapping_call_put = {'C': 1, 'P': 2}
+            buylist=buylist[buylist['call_put']==2]
+            buylist=buylist[buylist['close']>0.01]
+            buylist=buylist[buylist['days_remain']<70]
+            buylist=buylist[buylist['days_remain']>5]
+
+            buylist=buylist.head(buynum)
+        
+            if(cur_date>20231100):
+                print(buylist)
+            
+            #根据buylist做后期计算
+            buylist.loc[:,'buyuse']=buy_all_value/(buylist['ETF_close']*10000*buylist['Exercise_pred'])
+
+            #buylist['buyuse']=code_amount_buy/buylist['close']
+            buylist.loc[:,'buyuse']=buylist['buyuse'].round(0)
+            buylist.loc[:,'buyuse']=buylist['buyuse'].astype(int)
+            #buy=1 sell=-1
+            buylist['buy_sell']=buyorsell_2
+            buylist['value']=buylist['close']*buylist['buyuse']*buylist['buy_sell']*10000
+            #print(buylist)
+        
+        
+
+            savebuylist2=buylist[['ts_code','call_put','buy_sell','buyuse','close']]
+            savebuylist2.columns = ['ts_code','call_put','buy_sell','buy_amount','lastprice']
+            savebuylist2['last_action_flag']=0
+              
+            account=account-buylist['value'].sum()-buylist['buyuse'].sum()*2            
+
+            hold_list=hold_list.append(savebuylist2)
+        
+        #这里集合两个策略
+
+        
         hold_list.reset_index(inplace=True,drop=True)
 
         #计算当前总资产
-        hold_list_value=hold_list['buy_amount']*hold_list['lastprice']*10000
+        hold_list_value=hold_list['buy_amount']*hold_list['lastprice']*hold_list['buy_sell']*10000
         #这里当卖出        
-        if buyorsell == 0 :          
-            allvalue=hold_list_value.sum()+account
-        else:
-            allvalue=-hold_list_value.sum()+account
+       
+        allvalue=hold_list_value.sum()+account
 
         single_random_number = np.random.normal(mean, std_dev, size=1)
         
@@ -456,6 +629,259 @@ def opt_backTesting():
         baselinerd=allvalue/accountbase
         print(allvalue)
         print(cur_date)        
+
+        #计算max drop down
+        if(curMax<allvalue):
+            curMax=allvalue
+
+        curDropDown=(curMax-allvalue)/curMax
+            
+        if(curMaxDropDown<curDropDown):
+            curMaxDropDown=curDropDown
+
+        print(curMaxDropDown)
+
+        show3.append(baselinerd)
+
+
+    days=np.arange(1,datelist.shape[0]+1)
+
+    #每隔5日显示一个数据
+    eee=np.where(days%5==0)
+    daysshow=days[eee]
+    datashow=datelist[eee]
+    
+    plt.plot(days,show3,c='green',label="TOPK _open_head30")
+    plt.plot(days,baseline50,c='red',label="300ETF_baseline")
+    plt.xticks(daysshow, datashow,color='blue',rotation=60)
+    #plt.yscale("log")
+    plt.legend()
+    plt.show()
+
+    #daily_all_df.to_csv('try1216.csv',encoding='utf-8-sig')
+
+    #循环每日数据
+
+
+    #根据数据生成图表
+
+
+    zzzz=1
+
+def opt_backTesting_lgb():
+
+    daily_all=pd.read_csv('see1224.csv',header=0,index_col=0,encoding='utf-8-sig')
+    
+    score_df=pd.read_csv('lgbpred_0113.csv',header=0,index_col=0,encoding='utf-8-sig')
+
+    score_df=score_df[['ts_code','trade_date','Tomorrow_pred']]
+
+    daily_all_df=pd.merge(daily_all,score_df, how='left', on=['ts_code','trade_date'])
+    
+    #daily_all_df['Tomorrow_pred'].fillna(value=np.random.rand(len(daily_all_df['Tomorrow_pred'])))
+
+    daily_all_df['Tomorrow_pred'].fillna(0, inplace=True)
+
+    print(daily_all_df)
+
+    datelist=daily_all_df['trade_date'].unique()
+
+    show3=[]
+    mean=0
+    std_dev = 1
+    
+    baseline50=[]
+    baseline=1
+    baselinerd=1
+    
+    hold_list=[]
+    hold_list=pd.DataFrame(columns=('ts_code','call_put','buy_sell','buy_amount','lastprice'))
+    
+    account=10000000
+    buy_pct=0.6
+    accountbase=account
+    lastallvalue=account
+    curMax=0
+    curMaxDropDown=0
+    #当日结束总资产
+    allvalue=account
+    buynum=2
+    buyorsell_1=-1
+    buyorsell_2=-1
+
+
+    seed_value = 66
+    np.random.seed(seed_value)
+
+    # skip1=0
+    for cur_date in datelist:
+        # skip1+=1;
+        # if(skip1<2):
+        #     continue;
+
+        #获取当日的数据
+        cur_df_all=daily_all_df[daily_all_df['trade_date'].isin([cur_date])]
+        cur_df_all=cur_df_all.sort_values(by='exercise_price', ascending=True)
+
+        #这里改成代号
+        # mapping_opt_code = {'510050.SH': 1, '510300.SH': 2, '510500.SH': 3, '588000.SH': 4, '588080.SH': 5}
+        filtered_df = cur_df_all.loc[cur_df_all['opt_code'] == 1]
+        if(len(filtered_df)==0):
+            curpctchg=0
+        else:
+            curpctchg=filtered_df['ETF_pct_chg'].values[0]
+        
+        baseline=baseline*(1+curpctchg/100)
+        baseline50.append(baseline)
+
+
+        # 计算新的价值，卖出hold的期权，计算资产
+        if hold_list.shape[0]>0 :
+            hold_list_buffer=pd.merge(hold_list,filtered_df, how='left', on=['ts_code'])
+            hold_list_buffer.reset_index(inplace=True,drop=True)
+            #print(hold_list_buffer)
+
+            hold_list.loc[:,'lastprice']=hold_list_buffer['close']
+            
+            #print(hold_list)
+            dsfsdf=1
+
+        #卖出逻辑
+        if hold_list.shape[0]>0 :
+            #简单的直接清空
+            hold_list_value=hold_list['buy_amount']*hold_list['lastprice']*hold_list['buy_sell']*10000
+            #前面买入这里加     
+            account=account+hold_list_value.sum()
+
+            hold_list=pd.DataFrame(columns=('ts_code','call_put','buy_sell','buy_amount','lastprice'))
+            allvalue=account
+            dsfsdf=1
+            
+
+        #策略一 简单的买入所有认购
+
+        buy_all_value=allvalue*buy_pct/buynum
+
+        if (cur_date>20230203) and (cur_date<20230300):
+            print(filtered_df)
+            
+        buylist=filtered_df
+        #选择需要的行权概率
+        buylist['Exercise_pred_order']=buylist['Exercise_pred']-0.3
+        buylist['Exercise_pred_order']=buylist['Exercise_pred_order'].abs()
+        #print(buylist)
+        buylist=buylist.sort_values(by=['Tomorrow_pred'],ascending=True)
+        #print(buylist)
+        #这里改成代号
+        # mapping_call_put = {'C': 1, 'P': 2}
+        buylist=buylist[buylist['call_put']==1]
+        buylist=buylist[buylist['close']>0.02]
+        buylist=buylist[buylist['days_remain']<70]
+        buylist=buylist[buylist['days_remain']>5]
+
+        #print(buylist)
+
+        buylist=buylist.head(buynum)
+        
+        if(cur_date>20230203) and (cur_date<20230215):
+            print(buylist)
+            
+        #根据buylist做后期计算
+        buylist.loc[:,'buyuse']=buy_all_value/(buylist['ETF_close']*10000*buylist['Exercise_pred'])
+
+        #buylist['buyuse']=code_amount_buy/buylist['close']
+        buylist.loc[:,'buyuse']=buylist['buyuse'].round(0)
+        buylist.loc[:,'buyuse']=buylist['buyuse'].astype(int)
+        #buy=1 sell=-1
+        buylist['buy_sell']=buyorsell_1
+        buylist['value']=buylist['close']*buylist['buyuse']*buylist['buy_sell']*10000
+        #print(buylist)
+        
+        
+
+        savebuylist=buylist[['ts_code','call_put','buy_sell','buyuse','close']]
+        savebuylist.columns = ['ts_code','call_put','buy_sell','buy_amount','lastprice']
+        savebuylist['last_action_flag']=0
+              
+        account=account-buylist['value'].sum()-buylist['buyuse'].sum()*2
+
+        hold_list=hold_list.append(savebuylist)
+        
+
+        if True:
+            buy_all_value=0.5*allvalue*buy_pct/buynum
+
+            if(cur_date>20230203) and (cur_date<20230215):
+                print(filtered_df)
+            
+            buylist=filtered_df
+            #选择需要的行权概率
+            buylist['Exercise_pred_order']=buylist['Exercise_pred']-0.3
+            buylist['Exercise_pred_order']=buylist['Exercise_pred_order'].abs()
+
+            buylist=buylist.sort_values(by=['Tomorrow_pred'],ascending=False)
+            #这里改成代号
+            # mapping_call_put = {'C': 1, 'P': 2}
+            buylist=buylist[buylist['call_put']==2]
+            buylist=buylist[buylist['close']>0.01]
+            buylist=buylist[buylist['days_remain']<70]
+            buylist=buylist[buylist['days_remain']>5]
+
+            buylist=buylist.head(buynum)
+        
+            if(cur_date>20230203) and (cur_date<20230215):
+                print(buylist)
+            
+            #根据buylist做后期计算
+            buylist.loc[:,'buyuse']=buy_all_value/(buylist['ETF_close']*10000*buylist['Exercise_pred'])
+
+            #buylist['buyuse']=code_amount_buy/buylist['close']
+            buylist.loc[:,'buyuse']=buylist['buyuse'].round(0)
+            buylist.loc[:,'buyuse']=buylist['buyuse'].astype(int)
+            #buy=1 sell=-1
+            buylist['buy_sell']=buyorsell_2
+            buylist['value']=buylist['close']*buylist['buyuse']*buylist['buy_sell']*10000
+            #print(buylist)
+        
+        
+
+            savebuylist2=buylist[['ts_code','call_put','buy_sell','buyuse','close']]
+            savebuylist2.columns = ['ts_code','call_put','buy_sell','buy_amount','lastprice']
+            savebuylist2['last_action_flag']=0
+              
+            account=account-buylist['value'].sum()-buylist['buyuse'].sum()*2            
+
+            hold_list=hold_list.append(savebuylist2)
+        
+        #这里集合两个策略
+
+        
+        hold_list.reset_index(inplace=True,drop=True)
+
+        #计算当前总资产
+        hold_list_value=hold_list['buy_amount']*hold_list['lastprice']*hold_list['buy_sell']*10000
+        #这里当卖出        
+       
+        allvalue=hold_list_value.sum()+account
+
+        single_random_number = np.random.normal(mean, std_dev, size=1)
+        
+        #baselinerd=baselinerd*(1+single_random_number/100)
+
+        baselinerd=allvalue/accountbase
+        print(allvalue)
+        print(cur_date)        
+
+        #计算max drop down
+        if(curMax<allvalue):
+            curMax=allvalue
+
+        curDropDown=(curMax-allvalue)/curMax
+            
+        if(curMaxDropDown<curDropDown):
+            curMaxDropDown=curDropDown
+
+        print(curMaxDropDown)
 
         show3.append(baselinerd)
 
@@ -561,6 +987,10 @@ if __name__ == '__main__':
 
     pro = ts.pro_api(token)
     
+    #opt_datemerge_FE()
+
+    #train_option_rank_model()
+
     #get_ETF_info(pro)
 
     #downloadall(pro)
@@ -568,7 +998,7 @@ if __name__ == '__main__':
 
     #train_option_exercise_probability_model()
     
-    opt_backTesting()
+    opt_backTesting_lgb()
 
     #from_chatgpt()
 
