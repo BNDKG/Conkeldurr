@@ -7,6 +7,7 @@ import sys
 import numpy as np
 import akshare as ak
 import matplotlib.pyplot as plt
+import joblib
 
 from datetime import datetime,timedelta
 
@@ -240,10 +241,19 @@ def train_option_exercise_probability_model():
 
     df=pd.read_csv('try1224.csv',index_col=0,header=0,encoding='utf-8-sig')
 
-    df['ETF_close'].fillna(0, inplace=True)
-    df['close'].fillna(0, inplace=True)
-    df['pre_close'].fillna(0, inplace=True)
-    df['pre_close'].fillna(0, inplace=True)
+    df=df.sort_values(by=['ts_code','trade_date'],ascending=True)
+
+    df['ETF_close']=df.groupby('ts_code')['ETF_close'].fillna(method='ffill')
+
+    df['close']=df.groupby('ts_code')['close'].fillna(method='ffill')
+    
+    df['pre_close']=df.groupby('ts_code')['pre_close'].fillna(method='ffill')
+
+    # df['ETF_close'].fillna(0, inplace=True)
+    # df['close'].fillna(0, inplace=True)
+    # df['pre_close'].fillna(0, inplace=True)
+
+    
 
     # # 划分验证集
     # valid = df.sample(frac=0.2, random_state=42)
@@ -306,6 +316,8 @@ def train_option_exercise_probability_model():
     # 训练模型
     model = lgb.train(params, train_data, valid_sets=[val_data], num_boost_round=100)
 
+    joblib.dump(model,"CloseCombat.pkl")  
+
     # 预测
     predictions = model.predict(X_test)
 
@@ -322,6 +334,71 @@ def train_option_exercise_probability_model():
     dfindex_test.to_csv('see1224.csv')
 
     zzzz=1
+
+def option_exercise_probability():
+    
+    lgb_model = joblib.load("CloseCombat.pkl")
+
+    df=pd.read_csv('try1224.csv',index_col=0,header=0,encoding='utf-8-sig')
+
+    df=df.sort_values(by=['ts_code','trade_date'],ascending=True)
+
+    df['ETF_close']=df.groupby('ts_code')['ETF_close'].fillna(method='ffill')
+
+    df['close']=df.groupby('ts_code')['close'].fillna(method='ffill')
+    
+    df['pre_close']=df.groupby('ts_code')['pre_close'].fillna(method='ffill')
+
+    df.reset_index(inplace=True,drop=True)
+
+    # df['ETF_close'].fillna(0, inplace=True)
+    # df['close'].fillna(0, inplace=True)
+    # df['pre_close'].fillna(0, inplace=True)
+
+    
+
+    # # 划分验证集
+    # valid = df.sample(frac=0.2, random_state=42)
+    # df.drop(index=valid.index, axis=1, inplace=True)
+
+    print(df)
+
+    mapping_call_put = {'C': 1, 'P': 2}
+    
+    mapping_opt_code = {'510050.SH': 1, '510300.SH': 2, '510500.SH': 3, '588000.SH': 4, '588080.SH': 5}
+
+    df['call_put'] = df['call_put'].map(mapping_call_put)
+    df['opt_code'] = df['opt_code'].map(mapping_opt_code)
+
+    print(df)
+    dfindex=df
+    df_train = df.drop(['ts_code'],axis=1,inplace=False)
+
+    #df=df[['pre_close','opt_code','call_put','days_remain','Exercise_Status']]
+
+
+    # 划分训练集和测试集
+    
+    X_df = df_train[['pre_close','close','ETF_close','real_value','opt_code','call_put','days_remain']]
+    
+    # 预测
+    predictions = lgb_model.predict(X_df)
+
+    outputy=pd.DataFrame(predictions,columns=['y_pred'])
+
+    
+    
+    print(X_df)
+
+    df['Exercise_pred']=outputy
+
+    print(df)
+    
+    df.to_csv('see0121.csv')
+
+
+    asdfsadf=1
+
 
 def train_option_rank_model():
 
@@ -344,8 +421,10 @@ def train_option_rank_model():
     df['opt_code'] = df['opt_code'].map(mapping_opt_code)
 
     df.dropna(axis=0, how='any', inplace=True)
+    df.reset_index(inplace=True,drop=True)
     print(df)
     dfindex=df
+    print(dfindex)
     df = df.drop(['ts_code'],axis=1,inplace=False)
 
     #df=df[['pre_close','opt_code','call_put','days_remain','Exercise_Status']]
@@ -370,7 +449,7 @@ def train_option_rank_model():
     dfindex_test=dfindex.iloc[(splitno+100):, :]
     
     print(X_train)
-    print(dfindex_test)
+    print(dfindex)
 
     # 创建LightGBM数据集
     train_data = lgb.Dataset(X_train, label=y_train)
@@ -394,19 +473,21 @@ def train_option_rank_model():
     model = lgb.train(params, train_data, valid_sets=[val_data], num_boost_round=100)
 
     # 预测
-    predictions = model.predict(X_test)
+    #predictions = model.predict(X_test)
+    predictions = model.predict(X)
 
     outputy=pd.DataFrame(predictions,columns=['y_pred'])
 
-    dfindex_test.reset_index(inplace=True,drop=True)
+    #dfindex_test.reset_index(inplace=True,drop=True)
     
-    print(dfindex_test)
+    print(dfindex)
 
-    dfindex_test['Tomorrow_pred']=outputy
+    #dfindex_test['Tomorrow_pred']=outputy
+    dfindex['Tomorrow_pred']=outputy
 
-    print(dfindex_test)
+    print(dfindex)
     
-    dfindex_test.to_csv('lgbpred_0113.csv')
+    dfindex.to_csv('lgbpred_0120.csv')
 
     zzzz=1
 
@@ -427,7 +508,7 @@ def opt_datemerge_FE():
     df['opt_today_pct3']=df['opt_today_dif3']/df['close']
 
     #明日排名
-    df['tomorrow_chg_rank']=df.groupby('trade_date')['opt_today_pct3'].rank(pct=True)
+    df['tomorrow_chg_rank']=df.groupby('trade_date')['tomorrow_chg'].rank(pct=True)
     #df['tomorrow_chg_rank']=df['tomorrow_chg_rank']*19.9//1
 
     print(df)
@@ -670,8 +751,31 @@ def opt_backTesting():
 
 def opt_backTesting_lgb():
 
-    daily_all=pd.read_csv('see1224.csv',header=0,index_col=0,encoding='utf-8-sig')
+    np.random.seed(99)
+
+    daily_all=pd.read_csv('see0121.csv',header=0,index_col=0,encoding='utf-8-sig')
     
+    daily_all=daily_all.sort_values(by=['ts_code','trade_date'],ascending=True)
+    
+    daily_all['Tomorrow_pred_rand'] = np.random.rand(len(daily_all))
+    ##感觉好像有点bug
+    # daily_all['Exercise_pred'] = 1
+    
+    # mapping_call_put = {'C': 1, 'P': 2}   
+    # mapping_opt_code = {'510050.SH': 1, '510300.SH': 2, '510500.SH': 3, '588000.SH': 4, '588080.SH': 5}
+
+    # daily_all['call_put'] = daily_all['call_put'].map(mapping_call_put)
+    # daily_all['opt_code'] = daily_all['opt_code'].map(mapping_opt_code)
+    
+    #daily_all=daily_all.sort_values(by=['ts_code'],ascending=True)
+
+    # daily_all['close']=daily_all['close'].replace(0, np.nan)
+    # daily_all['close']=daily_all['close'].fillna(method='ffill')
+    # daily_all.reset_index(inplace=True,drop=True)
+    # daily_all.to_csv('finalsee.csv')
+
+    #print(daily_all)
+
     score_df=pd.read_csv('lgbpred_0113.csv',header=0,index_col=0,encoding='utf-8-sig')
 
     score_df=score_df[['ts_code','trade_date','Tomorrow_pred']]
@@ -685,6 +789,10 @@ def opt_backTesting_lgb():
     print(daily_all_df)
 
     datelist=daily_all_df['trade_date'].unique()
+    
+    datelist=datelist[300:]
+
+    print(datelist)
 
     show3=[]
     mean=0
@@ -706,12 +814,9 @@ def opt_backTesting_lgb():
     #当日结束总资产
     allvalue=account
     buynum=2
-    buyorsell_1=-1
+    buyorsell_1=1
     buyorsell_2=-1
 
-
-    seed_value = 66
-    np.random.seed(seed_value)
 
     # skip1=0
     for cur_date in datelist:
@@ -721,15 +826,17 @@ def opt_backTesting_lgb():
 
         #获取当日的数据
         cur_df_all=daily_all_df[daily_all_df['trade_date'].isin([cur_date])]
-        cur_df_all=cur_df_all.sort_values(by='exercise_price', ascending=True)
+        #cur_df_all=cur_df_all.sort_values(by='exercise_price', ascending=True)
 
         #这里改成代号
         # mapping_opt_code = {'510050.SH': 1, '510300.SH': 2, '510500.SH': 3, '588000.SH': 4, '588080.SH': 5}
-        filtered_df = cur_df_all.loc[cur_df_all['opt_code'] == 1]
+        #filtered_df = cur_df_all.loc[cur_df_all['opt_code'] == 2]
+        filtered_df = cur_df_all.loc[cur_df_all['opt_code'].isin([1,2,3])]
+        #print(filtered_df)
         if(len(filtered_df)==0):
             curpctchg=0
         else:
-            curpctchg=filtered_df['ETF_pct_chg'].values[0]
+            curpctchg=filtered_df['ETF_pct_chg'].mean()
         
         baseline=baseline*(1+curpctchg/100)
         baseline50.append(baseline)
@@ -762,9 +869,10 @@ def opt_backTesting_lgb():
 
         buy_all_value=allvalue*buy_pct/buynum
 
-        if (cur_date>20230203) and (cur_date<20230300):
-            print(filtered_df)
+        # if (cur_date>20230203) and (cur_date<20230300):
+        #     print(filtered_df)
             
+        #print(filtered_df)
         buylist=filtered_df
         #选择需要的行权概率
         buylist['Exercise_pred_order']=buylist['Exercise_pred']-0.3
@@ -776,8 +884,11 @@ def opt_backTesting_lgb():
         # mapping_call_put = {'C': 1, 'P': 2}
         buylist=buylist[buylist['call_put']==1]
         buylist=buylist[buylist['close']>0.02]
-        buylist=buylist[buylist['days_remain']<70]
+        buylist=buylist[buylist['close']<0.2]
+        buylist=buylist[buylist['days_remain']<90]
         buylist=buylist[buylist['days_remain']>5]
+        # buylist=buylist[buylist['Exercise_pred']<0.9]
+        # buylist=buylist[buylist['Exercise_pred']>0.1]
 
         #print(buylist)
 
@@ -795,7 +906,6 @@ def opt_backTesting_lgb():
         #buy=1 sell=-1
         buylist['buy_sell']=buyorsell_1
         buylist['value']=buylist['close']*buylist['buyuse']*buylist['buy_sell']*10000
-        #print(buylist)
         
         
 
@@ -808,11 +918,11 @@ def opt_backTesting_lgb():
         hold_list=hold_list.append(savebuylist)
         
 
-        if True:
-            buy_all_value=0.5*allvalue*buy_pct/buynum
+        if False:
+            buy_all_value=1*allvalue*buy_pct/buynum
 
-            if(cur_date>20230203) and (cur_date<20230215):
-                print(filtered_df)
+            # if(cur_date>20230203) and (cur_date<20230215):
+            #     print(filtered_df)
             
             buylist=filtered_df
             #选择需要的行权概率
@@ -822,15 +932,17 @@ def opt_backTesting_lgb():
             buylist=buylist.sort_values(by=['Tomorrow_pred'],ascending=False)
             #这里改成代号
             # mapping_call_put = {'C': 1, 'P': 2}
-            buylist=buylist[buylist['call_put']==2]
-            buylist=buylist[buylist['close']>0.01]
+            #buylist=buylist[buylist['call_put']==2]
+            buylist=buylist[buylist['close']>0.02]
             buylist=buylist[buylist['days_remain']<70]
             buylist=buylist[buylist['days_remain']>5]
+            buylist=buylist[buylist['Exercise_pred']<0.9]
+            buylist=buylist[buylist['Exercise_pred']>0.1]
 
             buylist=buylist.head(buynum)
         
-            if(cur_date>20230203) and (cur_date<20230215):
-                print(buylist)
+            # if(cur_date>20230203) and (cur_date<20230215):
+            #     print(buylist)
             
             #根据buylist做后期计算
             buylist.loc[:,'buyuse']=buy_all_value/(buylist['ETF_close']*10000*buylist['Exercise_pred'])
@@ -852,11 +964,13 @@ def opt_backTesting_lgb():
             account=account-buylist['value'].sum()-buylist['buyuse'].sum()*2            
 
             hold_list=hold_list.append(savebuylist2)
+            
         
         #这里集合两个策略
-
         
         hold_list.reset_index(inplace=True,drop=True)
+
+        print(hold_list)
 
         #计算当前总资产
         hold_list_value=hold_list['buy_amount']*hold_list['lastprice']*hold_list['buy_sell']*10000
@@ -998,6 +1112,8 @@ if __name__ == '__main__':
 
     #train_option_exercise_probability_model()
     
+    #option_exercise_probability()
+
     opt_backTesting_lgb()
 
     #from_chatgpt()
